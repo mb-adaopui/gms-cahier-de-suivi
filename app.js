@@ -69,10 +69,25 @@ function getInitDB(){
   };
 }
 
-function saveDB(){try{localStorage.setItem(SK,JSON.stringify(DB));}catch(e){}}
+function saveDB(){try{localStorage.setItem(SK,JSON.stringify(DB));}catch(e){}fetch("https://cahier-de-suivi-c5be6-default-rtdb.europe-west1.firebasedatabase.app/ms026fd5eb47757ec6888247a2.json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(DB)}).catch(function(){});}
 function loadDB(cb){
+  // Charger immediatement depuis localStorage
   try{var s=localStorage.getItem(SK);DB=s?JSON.parse(s):getInitDB();}catch(e){DB=getInitDB();}
-  // Migration: ensure tokens and registered flags
+  doMigration(cb);
+  // Sync Firebase en arriere-plan
+  fetch("https://cahier-de-suivi-c5be6-default-rtdb.europe-west1.firebasedatabase.app/ms026fd5eb47757ec6888247a2.json")
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(data&&data.users&&data.users.length>0){
+        DB=data;try{localStorage.setItem(SK,JSON.stringify(DB));}catch(e){}
+        if(!ME)buildSelect();
+      } else {
+        fetch("https://cahier-de-suivi-c5be6-default-rtdb.europe-west1.firebasedatabase.app/ms026fd5eb47757ec6888247a2.json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(DB)}).catch(function(){});
+      }
+    }).catch(function(){});
+}
+function doMigration(cb){
+  if(!DB.users){DB=getInitDB();saveDB();cb();return;}
   var changed=false;
   DB.users=DB.users.map(function(u){
     if(u.role==="ref"){
@@ -82,19 +97,35 @@ function loadDB(cb){
       if(!x.phone){x.phone="";changed=true;}
       return x;
     }
-    if(u.role==="dir"&&u.registered===undefined){changed=true;return Object.assign({},u,{registered:true,phone:u.phone||""});}
+    if(u.role==="dir"&&u.registered===undefined){changed=true;return Object.assign({},u,{registered:true,phone:u.phone||""}); }
     return u;
   });
-  if(changed)saveDB();
-  // Restore custom sector definitions if saved
   if(DB.secs&&Array.isArray(DB.secs)){
     DB.secs.forEach(function(s){
       var idx=-1;for(var i=0;i<SECS.length;i++){if(SECS[i].id===s.id){idx=i;break;}}
       if(idx>=0){SECS[idx]=Object.assign({},SECS[idx],{label:s.label,short:s.short,c:s.c,tips:s.tips||[]});SM[s.id]=SECS[idx];}
     });
   }
+  if(changed)saveDB();
   cb();
 }
+var _polling=false;
+function startPoll(){
+  if(_polling)return;_polling=true;
+  setInterval(function(){
+    if(!ME)return;
+    fetch("https://cahier-de-suivi-c5be6-default-rtdb.europe-west1.firebasedatabase.app/ms026fd5eb47757ec6888247a2.json")
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(!data||!data.users)return;
+        if(JSON.stringify(data)!==JSON.stringify(DB)){
+          DB=data;try{localStorage.setItem(SK,JSON.stringify(DB));}catch(e){}
+          render();toast("Synchronise");
+        }
+      }).catch(function(){});
+  },8000);
+}
+
 function commit(nd){
   if(ME&&ME.role==="ref"){
     var ok=true;
@@ -137,9 +168,9 @@ function closeModal(){$("modal-ov").classList.remove("open");}
 // ── INIT ──
 window.onload=function(){
   // Set logos
-  $("lg-logo").src=LOGO;
-  $("inv-logo").src=LOGO;
-  $("tb-logo").src=LOGO;
+  var lg=$("lg-logo");if(lg)lg.src=LOGO;
+  var il=$("inv-logo");if(il)il.src=LOGO;
+  var tl=$("tb-logo");if(tl)tl.src=LOGO;
 
   loadDB(function(){
     var params=new URLSearchParams(window.location.search);
@@ -213,6 +244,7 @@ function buildSelect(){
 }
 
 $("l-btn").onclick=function(){
+  if(!DB||!DB.users){toast("Chargement en cours...",false);return;}
   var uid=$("l-uid").value;
   var u=DB.users.find(function(x){return x.id===uid;});
   if(!u){$("l-err").textContent="Introuvable.";$("l-err").style.display="";return;}
@@ -225,6 +257,7 @@ $("l-btn").onclick=function(){
     $("login-ref").style.display="none";
     $("topbar").style.display="flex";
     $("content").style.display="block";
+    startPoll();
     render();
   });
 };
