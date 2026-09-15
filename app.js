@@ -923,7 +923,19 @@ function pdfHisto(reqs,titre){
   openPrint(titre,body);
 }
 function openPrint(titre,body){
-  var w=window.open("","_blank");if(!w)return;
-  w.document.write("<!DOCTYPE html><html><head><meta charset=UTF-8><title>"+titre+"</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:12px;}h1,h2,h3{color:#1B5E42;}table{width:100%;border-collapse:collapse;margin-bottom:8px;}td{padding:4px 7px;border:1px solid #ddd;}td:first-child{font-weight:700;background:#f8f8f8;width:30%;}</style></head><body><h1>Grande Mosquee de Sartrouville</h1><div style='font-size:.7rem;color:#718096;margin-bottom:14px;'>"+titre+" - "+fdt(new Date().toISOString())+"</div>"+body+"<br><button onclick='window.print()' style='padding:8px 16px;background:#1B5E42;color:#fff;border:none;border-radius:5px;cursor:pointer;'>Imprimer</button></body></html>");
-  w.document.close();setTimeout(function(){w.print();},400);
+  // Creer un iframe invisible pour impression iOS
+  var old=document.getElementById("print-frame");
+  if(old)old.parentNode.removeChild(old);
+  var iframe=document.createElement("iframe");
+  iframe.id="print-frame";
+  iframe.style.cssText="position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;";
+  document.body.appendChild(iframe);
+  var doc=iframe.contentDocument||iframe.contentWindow.document;
+  doc.open();
+  doc.write("<!DOCTYPE html><html><head><meta charset=UTF-8><title>"+titre+"<\/title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:12px;}h1,h2,h3{color:#1B5E42;}table{width:100%;border-collapse:collapse;margin-bottom:8px;}td{padding:4px 7px;border:1px solid #ddd;}td:first-child{font-weight:700;background:#f8f8f8;width:30%;}<\/style><\/head><body><h1>Grande Mosquee de Sartrouville<\/h1><div style='font-size:.7rem;color:#718096;margin-bottom:14px;'>"+titre+" - "+fdt(new Date().toISOString())+"<\/div>"+body+"<\/body><\/html>");
+  doc.close();
+  setTimeout(function(){
+    try{iframe.contentWindow.focus();iframe.contentWindow.print();}
+    catch(e){window.print();}
+  },500);
 }
