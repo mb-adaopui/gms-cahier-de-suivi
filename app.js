@@ -106,6 +106,21 @@ function doMigration(cb){
       if(idx>=0){SECS[idx]=Object.assign({},SECS[idx],{label:s.label,short:s.short,c:s.c,tips:s.tips||[]});SM[s.id]=SECS[idx];}
     });
   }
+  // Auto-archivage : deplacer demandes traitees/rejetees de plus de 7 jours
+  var now7=Date.now()-7*24*60*60*1000;
+  var toArchive=[];
+  DB.reqs=DB.reqs.filter(function(r){
+    if((r.status==="done"||r.status==="rejected")&&new Date(r.updatedAt).getTime()<now7){
+      toArchive.push(r);
+      return false;
+    }
+    return true;
+  });
+  if(toArchive.length){
+    if(!DB.archive)DB.archive=[];
+    DB.archive=DB.archive.concat(toArchive);
+    changed=true;
+  }
   if(changed)saveDB();
   cb();
 }
@@ -760,7 +775,10 @@ function renderInvites(c){
 function openHistModal(uid){
   var u=DB.users.find(function(x){return x.id===uid;});if(!u)return;
   var sec=SM[u.sid]||null;
-  var reqs=DB.reqs.filter(function(r){return r.uid===uid;}).sort(function(a,b){return b.createdAt.localeCompare(a.createdAt);});
+  var reqs=DB.reqs.filter(function(r){return r.uid===uid;});
+  var archived=(DB.archive||[]).filter(function(r){return r.uid===uid;});
+  var all=reqs.concat(archived).sort(function(a,b){return b.createdAt.localeCompare(a.createdAt);});
+  var reqs=all;
   openModal("Historique - "+u.name,function(body){
     if(sec){var sb=el("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px",padding:"7px 10px",background:sec.bg,borderRadius:"7px"}});sb.appendChild(el("span",{style:{fontWeight:"700",color:sec.c,fontSize:".8rem"},txt:sec.label}));sb.appendChild(btn("PDF","bgr bsm",function(){pdfHisto(reqs,"Historique - "+u.name);}));body.appendChild(sb);}
     body.appendChild(el("p",{style:{fontSize:".7rem",color:GSL,marginBottom:"8px"},txt:reqs.length+" demande"+(reqs.length>1?"s":"")}));
@@ -825,6 +843,15 @@ function openReqModal(rid){
       body.appendChild(evRow);
     }
     body.appendChild(el("hr",{cls:"hr"}));
+    var delRow=el("div",{style:{display:"flex",gap:"8px",marginBottom:"8px"}});
+    var delBtn=btn("Supprimer cette demande","br bsm",function(){
+      if(!confirm("Supprimer definitivement cette demande ?"))return;
+      var nd=JSON.parse(JSON.stringify(DB));
+      nd.reqs=nd.reqs.filter(function(x){return x.id!==rid;});
+      commit(nd);toast("Demande supprimee.");closeModal();
+    });
+    delRow.appendChild(delBtn);
+    body.appendChild(delRow);
     body.appendChild(btn("Imprimer / PDF","bgr bsm",function(){pdfReqFn(rid);}));
   });
 }
@@ -888,9 +915,16 @@ function renderCfg(c){
   pc.appendChild(btn("Mettre a jour","bg bsm",function(){var np=$("c-np").value;var cp=$("c-cp").value;if(np.length<4){toast("Min. 4 car.",false);return;}if(np!==cp){toast("Codes differents.",false);return;}hashPin(np,function(ph){var nd=JSON.parse(JSON.stringify(DB));nd.users=nd.users.map(function(u){return u.id===ME.id?Object.assign({},u,{pinHash:ph}):u;});ME=Object.assign({},ME,{pinHash:ph});commit(nd);toast("Code mis a jour !");$("c-np").value="";$("c-cp").value="";}); }));
   c.appendChild(pc);
   var ec=el("div",{cls:"card",style:{marginBottom:"8px"}});
-  ec.appendChild(el("div",{style:{fontWeight:"700",fontSize:".82rem",color:G,marginBottom:"8px"},txt:"Email"}));
-  var ef=el("div",{cls:"fg"});var ei=document.createElement("input");ei.type="email";ei.id="c-em";ei.value=ME.email||"";ei.placeholder="email@exemple.com";ef.appendChild(ei);ec.appendChild(ef);
-  ec.appendChild(btn("Sauvegarder","bg bsm",function(){var em=$("c-em").value.trim();var nd=JSON.parse(JSON.stringify(DB));nd.users=nd.users.map(function(u){return u.id===ME.id?Object.assign({},u,{email:em}):u;});ME=Object.assign({},ME,{email:em});commit(nd);toast("Email sauvegarde !");}));
+  ec.appendChild(el("div",{style:{fontWeight:"700",fontSize:".82rem",color:G,marginBottom:"8px"},txt:"Coordonnees"}));
+  var ef=el("div",{cls:"fg"});ef.appendChild(el("label",{txt:"Email"}));var ei=document.createElement("input");ei.type="email";ei.id="c-em";ei.value=ME.email||"";ei.placeholder="email@exemple.com";ef.appendChild(ei);ec.appendChild(ef);
+  var pf=el("div",{cls:"fg"});pf.appendChild(el("label",{txt:"Telephone"}));var pi=document.createElement("input");pi.type="tel";pi.id="c-ph";pi.value=ME.phone||"";pi.placeholder="06 xx xx xx xx";pf.appendChild(pi);ec.appendChild(pf);
+  ec.appendChild(btn("Sauvegarder","bg bsm",function(){
+    var em=$("c-em").value.trim();
+    var ph=$("c-ph").value.trim();
+    var nd=JSON.parse(JSON.stringify(DB));
+    nd.users=nd.users.map(function(u){return u.id===ME.id?Object.assign({},u,{email:em,phone:ph}):u;});
+    ME=Object.assign({},ME,{email:em,phone:ph});commit(nd);toast("Coordonnees sauvegardees !");
+  }));
   c.appendChild(ec);
   var pdfCard=el("div",{cls:"card",style:{marginBottom:"8px"}});
   pdfCard.appendChild(el("div",{style:{fontWeight:"700",fontSize:".82rem",color:G,marginBottom:"6px"},txt:"Mes demandes PDF"}));
